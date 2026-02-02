@@ -65,14 +65,35 @@ input_df = pd.DataFrame([[
     'log_carat','volume','price_per_carat',
     'dimension_ratio','log_volume','price_density'
 ])
-
 # ---------------- PRICE PREDICTION ----------------
 if st.button("💰 Predict Price"):
+
+    # ---- FIX FEATURE MISMATCH ----
+    required_cols = price_model.feature_names_in_
+
+    for col in required_cols:
+        if col not in input_df.columns:
+            input_df[col] = 0
+
+    # reorder columns to match training
+    input_df = input_df[required_cols]
+
     predicted_price = price_model.predict(input_df)[0]
     st.success(f"Estimated Diamond Price: ₹ {predicted_price:,.2f}")
-
 # ---------------- CLUSTER PREDICTION ----------------
 if st.button("📊 Predict Market Segment"):
-    scaled_data = cluster_scaler.transform(input_df)
+
+    # ---- FIX FEATURE MISMATCH FOR CLUSTER ----
+    required_cluster_cols = cluster_scaler.feature_names_in_
+
+    for col in required_cluster_cols:
+        if col not in input_df.columns:
+            input_df[col] = 0
+
+    # reorder columns
+    input_df_cluster = input_df[required_cluster_cols]
+
+    scaled_data = cluster_scaler.transform(input_df_cluster)
     cluster = cluster_model.predict(scaled_data)[0]
+
     st.info(f"Market Segment: **{cluster_names[cluster]}**")
