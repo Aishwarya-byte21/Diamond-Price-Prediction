@@ -1,99 +1,153 @@
 import streamlit as st
-import pandas as pd
 import numpy as np
 import pickle
 
-# ---------------- LOAD MODELS ----------------
-price_model = pickle.load(open("best_price_model.pkl", "rb"))
-cluster_model = pickle.load(open("diamond_cluster_model.pkl", "rb"))
-cluster_scaler = pickle.load(open("cluster_scaler.pkl", "rb"))
+# ===============================
+# Constants
+# ===============================
+AVG_PRICE_PER_CARAT = 5500   # USD (dataset average)
+USD_TO_INR = 83
 
-# ---------------- CLUSTER NAMES ----------------
+# ===============================
+# Load models & scalers
+# ===============================
+with open('final_model.pkl', 'rb') as f:
+    price_model = pickle.load(f)
+
+with open('scaler.pkl', 'rb') as f:
+    price_scaler = pickle.load(f)
+
+with open('kmeans_market_segmentation.pkl', 'rb') as f:
+    kmeans_model = pickle.load(f)
+
+with open('cluster_scaler.pkl', 'rb') as f:
+    cluster_scaler = pickle.load(f)
+
+# ===============================
+# Cluster name mapping
+# ===============================
 cluster_names = {
-    0: "Affordable Small Diamonds",
-    1: "Mid-range Balanced Diamonds",
-    2: "Premium Heavy Diamonds"
+    0: 'Premium Heavy Diamonds',
+    1: 'Affordable Small Diamonds',
+    2: 'Mid-range Balanced Diamonds'
 }
 
-# ---------------- APP UI ----------------
-st.set_page_config(page_title="Diamond Analytics", layout="centered")
+# ===============================
+# Page config
+# ===============================
+st.set_page_config(page_title="Diamond Price & Market Segmentation")
 st.title("💎 Diamond Price Prediction & Market Segmentation")
+st.markdown("---")
 
-st.markdown("Predict **diamond price** and identify its **market segment**")
+# ===============================
+# Sidebar
+# ===============================
+module = st.sidebar.selectbox(
+    "Select Module",
+    ["Price Prediction", "Market Segment Prediction"]
+)
 
-# ---------------- USER INPUT ----------------
-st.header("🔢 Enter Diamond Details")
+# ===============================
+# Input Form
+# ===============================
+st.subheader("Enter Diamond Details")
 
-carat = st.number_input("Carat", min_value=0.1, step=0.01)
-depth = st.number_input("Depth", step=0.1)
-table = st.number_input("Table", step=0.1)
+carat = st.number_input(
+    "Carat (0.1 – 5.0)",
+    min_value=0.1,
+    max_value=5.0,
+    value=0.9,
+    step=0.01
+)
 
-cut = st.selectbox("Cut", ["Fair", "Good", "Very Good", "Premium", "Ideal"])
-color = st.selectbox("Color", ["D", "E", "F", "G", "H", "I", "J"])
-clarity = st.selectbox("Clarity", ["I1", "SI2", "SI1", "VS2", "VS1", "VVS2", "VVS1", "IF"])
+depth = st.number_input(
+    "Depth % (50 – 70)",
+    min_value=50.0,
+    max_value=70.0,
+    value=61.0,
+    step=0.1
+)
 
-x = st.number_input("Length (x)", step=0.1)
-y = st.number_input("Width (y)", step=0.1)
-z = st.number_input("Depth (z)", step=0.1)
+table = st.number_input(
+    "Table % (50 – 70)",
+    min_value=50.0,
+    max_value=70.0,
+    value=56.0,
+    step=0.1
+)
 
-# ---------------- ENCODING ----------------
-cut_map = {"Fair":0, "Good":1, "Very Good":2, "Premium":3, "Ideal":4}
-color_map = {"D":0,"E":1,"F":2,"G":3,"H":4,"I":5,"J":6}
-clarity_map = {"I1":0,"SI2":1,"SI1":2,"VS2":3,"VS1":4,"VVS2":5,"VVS1":6,"IF":7}
+dimension_ratio = st.number_input(
+    "Dimension Ratio (0.8 – 1.3)",
+    min_value=0.8,
+    max_value=1.3,
+    value=1.05,
+    step=0.01
+)
 
-cut = cut_map[cut]
-color = color_map[color]
-clarity = clarity_map[clarity]
+cut = st.selectbox(
+    "Cut (Quality Order)",
+    ['Fair', 'Good', 'Very Good', 'Premium', 'Ideal']
+)
 
-# ---------------- FEATURE ENGINEERING ----------------
-volume = x * y * z
-dimension_ratio = (x + y) / (2 * z) if z != 0 else 0
-log_carat = np.log1p(carat)
-log_volume = np.log1p(volume)
+color = st.selectbox(
+    "Color (J = Lowest, D = Best)",
+    ['J', 'I', 'H', 'G', 'F', 'E', 'D']
+)
 
-# Dummy placeholders (used during training)
-price_per_carat = 1
-price_density = 1
+clarity = st.selectbox(
+    "Clarity (I1 = Lowest, IF = Best)",
+    ['I1', 'SI2', 'SI1', 'VS2', 'VS1', 'VVS2', 'VVS1', 'IF']
+)
 
-# ---------------- INPUT DATAFRAME ----------------
-input_df = pd.DataFrame([[
-    carat, cut, color, clarity, depth, table,
-    log_carat, volume, price_per_carat,
-    dimension_ratio, log_volume, price_density
-]], columns=[
-    'carat','cut','color','clarity','depth','table',
-    'log_carat','volume','price_per_carat',
-    'dimension_ratio','log_volume','price_density'
-])
-# ---------------- PRICE PREDICTION ----------------
-if st.button("💰 Predict Price"):
+# ===============================
+# Ordinal Encoding
+# ===============================
+cut_map = {'Fair':0, 'Good':1, 'Very Good':2, 'Premium':3, 'Ideal':4}
+color_map = {'J':0, 'I':1, 'H':2, 'G':3, 'F':4, 'E':5, 'D':6}
+clarity_map = {'I1':0, 'SI2':1, 'SI1':2, 'VS2':3, 'VS1':4, 'VVS2':5, 'VVS1':6, 'IF':7}
 
-    # ---- FIX FEATURE MISMATCH ----
-    required_cols = price_model.feature_names_in_
+cut_enc = cut_map[cut]
+color_enc = color_map[color]
+clarity_enc = clarity_map[clarity]
 
-    for col in required_cols:
-        if col not in input_df.columns:
-            input_df[col] = 0
+# ===============================
+# PRICE PREDICTION (USD → INR)
+# ===============================
+if module == "Price Prediction":
+    if st.button("Predict Price 💰"):
+        X_price = np.array([[
+            carat,
+            cut_enc,
+            color_enc,
+            clarity_enc,
+            depth,
+            table,
+            AVG_PRICE_PER_CARAT,   # hidden feature
+            dimension_ratio
+        ]])
 
-    # reorder columns to match training
-    input_df = input_df[required_cols]
+        X_price_scaled = price_scaler.transform(X_price)
+        price_usd = price_model.predict(X_price_scaled)[0]
+        price_inr = price_usd * USD_TO_INR
 
-    predicted_price = price_model.predict(input_df)[0]
-    st.success(f"Estimated Diamond Price: ₹ {predicted_price:,.2f}")
-# ---------------- CLUSTER PREDICTION ----------------
-if st.button("📊 Predict Market Segment"):
+        st.success(f"💎 Predicted Diamond Price: ₹ {price_inr:,.2f}")
 
-    # ---- FIX FEATURE MISMATCH FOR CLUSTER ----
-    required_cluster_cols = cluster_scaler.feature_names_in_
+# ===============================
+# MARKET SEGMENT PREDICTION
+# ===============================
+if module == "Market Segment Prediction":
+    if st.button("Predict Market Segment 📊"):
+        X_cluster = np.array([[
+            carat,
+            cut_enc,
+            color_enc,
+            clarity_enc,
+            AVG_PRICE_PER_CARAT,
+            dimension_ratio
+        ]])
 
-    for col in required_cluster_cols:
-        if col not in input_df.columns:
-            input_df[col] = 0
+        X_cluster_scaled = cluster_scaler.transform(X_cluster)
+        cluster_id = kmeans_model.predict(X_cluster_scaled)[0]
 
-    # reorder columns
-    input_df_cluster = input_df[required_cluster_cols]
-
-    scaled_data = cluster_scaler.transform(input_df_cluster)
-    cluster = cluster_model.predict(scaled_data)[0]
-
-    st.info(f"Market Segment: **{cluster_names[cluster]}**")
+        st.info(f"🔢 Cluster Number: {cluster_id}")
+        st.success(f"🏷 Market Segment: {cluster_names[cluster_id]}")
